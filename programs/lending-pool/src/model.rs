@@ -2,24 +2,23 @@ use anchor_lang::prelude::*;
 use anchor_lang::error_code;
 use anchor_lang::Event;
 
-use anchor_spl::token::{Mint, TokenAccount, Token};
+use anchor_spl::token::{ Mint, TokenAccount, Token };
 use anchor_spl::associated_token::AssociatedToken;
 
 #[account]
 #[derive(Default, Debug)]
 pub struct LendingPool {
-    pub mint: Pubkey,              // 抵押品代币的 Mint 地址（USDC）
-    pub decimals: u8,              // 代币精度
-    pub total_supply: u64,         // 总供应量（存款）
-    pub total_borrowed: u64,       // 总借款
-    pub liquidity_index: u128,     // 流动性指数（复利计算）
-    pub borrow_index: u128,        // 借款指数（复利计算）
-    pub reserve_factor: u8,        // 储备金率（如 10%）
-    pub collateral_factor: u8,     // 抵押率（如 75%）
-    pub last_update_time: i64,     // 最后更新时间戳
-    pub base_rate: u64,            // 基础利率（APR）
+    pub mint: Pubkey, // 抵押品代币的 Mint 地址
+    pub decimals: u8, // 代币精度
+    pub total_supply: u64, // 总供应量（存款）
+    pub total_borrowed: u64, // 总借款
+    pub liquidity_index: u128, // 流动性指数（复利计算）
+    pub borrow_index: u128, // 借款指数（复利计算）
+    pub reserve_factor: u8, // 储备金率（如 10%）
+    pub collateral_factor: u8, // 抵押率（如 75%）
+    pub last_update_time: i64, // 最后更新时间戳
+    pub base_rate: u64, // 基础利率（APR）
 }
-
 
 #[derive(Accounts)]
 pub struct InitializePool<'info> {
@@ -60,7 +59,6 @@ pub struct Deposit<'info> {
     // 用户相关账户
     // ----------------------------
 
-    /// CHECK: demo 看一下这个是不是可以去掉
     #[account(mut)]
     pub user: Signer<'info>, // 用户签名账户
 
@@ -108,7 +106,6 @@ pub struct DepositCollateral<'info> {
     // 用户相关账户
     // ----------------------------
 
-    /// CHECK: demo 看一下这个是不是可以去掉
     #[account(mut)]
     pub user: Signer<'info>, // 用户签名账户
 
@@ -156,7 +153,6 @@ pub struct Borrow<'info> {
     // 用户相关账户
     // ----------------------------
 
-    /// CHECK: demo 看一下这个是不是可以去掉
     #[account(mut)]
     pub user: Signer<'info>, // 用户签名账户
 
@@ -192,6 +188,12 @@ pub struct Borrow<'info> {
     // ----------------------------
     pub token_program: Program<'info, Token>, // SPL Token 程序
     pub system_program: Program<'info, System>, // 系统程序
+    /// CHECK: 存款价格feed 地址
+    pub depodit_feed: AccountInfo<'info>,
+    /// CHECK: 借款价格feed 地址
+    pub borrow_feed: AccountInfo<'info>,
+    /// CHECK: feed 程序
+    pub feed_program: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -200,7 +202,6 @@ pub struct Repay<'info> {
     // 用户相关账户
     // ----------------------------
 
-    /// CHECK: demo 看一下这个是不是可以去掉
     #[account(mut)]
     pub user: Signer<'info>, // 用户签名账户
 
@@ -259,7 +260,7 @@ pub struct Liquidate<'info> {
 
     /// CHECK: 被清算的用户
     #[account(mut)]
-    pub user: AccountInfo<'info>, 
+    pub user: AccountInfo<'info>,
 
     #[account(
         mut,
@@ -286,6 +287,12 @@ pub struct Liquidate<'info> {
     // ----------------------------
     pub token_program: Program<'info, Token>, // SPL Token 程序
     pub system_program: Program<'info, System>, // 系统程序
+    /// CHECK: 存款价格feed 地址
+    pub depodit_feed: AccountInfo<'info>,
+    /// CHECK: 借款价格feed 地址
+    pub borrow_feed: AccountInfo<'info>,
+    /// CHECK: feed 程序
+    pub feed_program: AccountInfo<'info>,
 }
 
 // ----------------------------
@@ -294,22 +301,20 @@ pub struct Liquidate<'info> {
 #[account]
 #[derive(Default, Debug)]
 pub struct UserPosition {
-
-    pub user: Pubkey,              // 用户地址
-    pub pool: Pubkey,              // 关联的 LendingPool
-    pub deposited_amount: u64,     // 抵押品数量
-    pub borrowed_amount: u64,      // 借款数量
-    pub collateral_enabled: bool,  // 是否启用抵押
-    pub last_update_time: i64,     // 用户仓位最后更新时间
+    pub user: Pubkey, // 用户地址
+    pub pool: Pubkey, // 关联的 LendingPool
+    pub deposited_amount: u64, // 抵押品数量
+    pub borrowed_amount: u64, // 借款数量
+    pub collateral_enabled: bool, // 是否启用抵押
+    pub last_update_time: i64, // 用户仓位最后更新时间
 }
-
 
 // ----------------------------
 // 事件记录账户（记录关键操作）
 // ----------------------------
 #[account]
 pub struct LendingEvent {
-    pub event_type: u8,            // 0=存款, 1=取款, 2=借款, 3=还款, 4=清算
+    pub event_type: u8, // 0=存款, 1=取款, 2=借款, 3=还款, 4=清算
     pub amount: u64,
 
     pub user: Pubkey,
@@ -326,7 +331,6 @@ impl Event for LendingEvent {
         data
     }
 }
-    
 
 #[error_code]
 pub enum LendingError {

@@ -1,54 +1,60 @@
-
 use anchor_lang::prelude::Result;
-use crate::{LendingError,LendingPool,Borrow};
+use crate::{ LendingError, LendingPool, Borrow };
 use anchor_lang::prelude::*;
+use chainlink_solana as chainlink;
+
 // 计算用户健康因子
 pub fn calculate_health_factor(
     deposited_amount: u64,
     borrowed_amount: u64,
     collateral_factor: u8,
-    price: u64, // 假设 price 是抵押品价格（如 1e6 表示 1.0 USD）
+    price: u64 // 假设 price 是抵押品价格（如 1e6 表示 1.0 USD）
 ) -> Result<u64> {
-    let collateral_value = deposited_amount
-        .checked_mul(price)
-        .ok_or(LendingError::MathOverflow)?;
+    let collateral_value = deposited_amount.checked_mul(price).ok_or(LendingError::MathOverflow)?;
 
-    let borrow_limit = collateral_value
-        .checked_mul(collateral_factor as u64)
-        .ok_or(LendingError::MathOverflow)?
-        / 100;
+    let borrow_limit =
+        collateral_value.checked_mul(collateral_factor as u64).ok_or(LendingError::MathOverflow)? /
+        100;
 
     if borrow_limit == 0 {
         return Ok(0);
     }
 
-    let health_factor = borrow_limit
-        .checked_mul(100)
-        .ok_or(LendingError::MathOverflow)?
-        / borrowed_amount;
+    let health_factor =
+        borrow_limit.checked_mul(100).ok_or(LendingError::MathOverflow)? / borrowed_amount;
 
     Ok(health_factor)
 }
 
-// todo 无预言机，此处先假设一个值
-pub fn get_oracle_price(_mint: Pubkey) -> Result<u64> {
+// 从预言机获取价格
+pub fn get_oracle_price<'info>(feed_program:&AccountInfo<'info>,deposit_feed:&AccountInfo<'info>,borrow_feed:&AccountInfo<'info>,) -> Result<u64> {
     // 从预言机获取价格
-    Ok(1_000_000) // 假设价格是 1.0 USD
+    let deposit_feed = chainlink::latest_round_data(feed_program.to_account_info(), deposit_feed.to_account_info())?.answer as u64;
+    let borrow_feed = chainlink::latest_round_data(feed_program.to_account_info(), borrow_feed.to_account_info())?.answer as u64;
+
+  
+    // 计算相对价格，比如：SOL/USDC 价格
+    let relative_price = deposit_feed
+        .checked_div(borrow_feed)
+        .ok_or(ProgramError::InvalidArgument)?;
+    Ok(relative_price)
 }
 
 // 借款前的健康检查
 pub fn check_before_borrow(ctx: &Context<Borrow>, amount: u64) -> Result<()> {
     let user_position = &ctx.accounts.user_position;
     let pool = &ctx.accounts.pool;
-
+    let chainlink = &ctx.accounts.feed_program;
+    let depodit_feed = &ctx.accounts.depodit_feed;
+    let borrow_feed = &ctx.accounts.borrow_feed;
     // 获取抵押品价格（预言机）
-    let price = get_oracle_price(pool.mint)?;
+    let price = get_oracle_price(chainlink,depodit_feed,borrow_feed)?;
 
     let health_factor = calculate_health_factor(
         user_position.deposited_amount,
         user_position.borrowed_amount + amount,
         pool.collateral_factor,
-        price,
+        price
     )?;
 
     require!(health_factor >= 100, LendingError::InsufficientCollateral);
@@ -56,20 +62,18 @@ pub fn check_before_borrow(ctx: &Context<Borrow>, amount: u64) -> Result<()> {
     Ok(())
 }
 
-
 fn calculate_interest_rate(pool: &LendingPool) -> u64 {
     let utilization_rate = (pool.total_borrowed * 100) / pool.total_supply;
 
     let base_rate = pool.base_rate;
     let slope = match utilization_rate {
-        0..=50 => 10,  // 0-50%: 斜率 0.1%
+        0..=50 => 10, // 0-50%: 斜率 0.1%
         51..=80 => 20, // 50-80%: 斜率 0.2%
-        _ => 30,       // >80%: 斜率 0.3%
+        _ => 30, // >80%: 斜率 0.3%
     };
 
-    base_rate + (utilization_rate * slope)
+    base_rate + utilization_rate * slope
 }
-
 
 #[test]
 fn test_calculate_interest_rate() {
@@ -82,7 +86,7 @@ fn test_calculate_interest_rate() {
 
     // 资金利用率 = 50%
     let rate = calculate_interest_rate(&pool);
-    assert_eq!(rate, 500 + (50 * 10)); // 5% + (50 * 0.2%) = 15%
+    assert_eq!(rate, 500 + 50 * 10); // 5% + (50 * 0.2%) = 15%
 }
 
 // 更新全局利息
@@ -95,10 +99,12 @@ pub fn accrue_interest(pool: &mut Account<LendingPool>) -> Result<()> {
         let borrow_rate = calculate_interest_rate(pool);
 
         // 计算利息
-        let interest = pool.total_borrowed
-            .checked_mul(borrow_rate)
-            .and_then(|v| v.checked_mul(time_elapsed as u64))
-            .ok_or(LendingError::MathOverflow)? / (365 * 24 * 60 * 60); // 年化转秒级
+        let interest =
+            pool.total_borrowed
+                .checked_mul(borrow_rate)
+                .and_then(|v| v.checked_mul(time_elapsed as u64))
+                .ok_or(LendingError::MathOverflow)? /
+            (365 * 24 * 60 * 60); // 年化转秒级
 
         // 更新总借款（复利）
         pool.total_borrowed = pool.total_borrowed
@@ -107,11 +113,11 @@ pub fn accrue_interest(pool: &mut Account<LendingPool>) -> Result<()> {
 
         // 更新流动性指数和借款指数
         pool.liquidity_index = pool.liquidity_index
-            .checked_add((interest * 1_000_000_000 / pool.total_supply).into())
+            .checked_add(((interest * 1_000_000_000) / pool.total_supply).into())
             .ok_or(LendingError::MathOverflow)?;
 
         pool.borrow_index = pool.borrow_index
-            .checked_add((interest * 1_000_000_000 / pool.total_borrowed).into())
+            .checked_add(((interest * 1_000_000_000) / pool.total_borrowed).into())
             .ok_or(LendingError::MathOverflow)?;
 
         // 更新最后更新时间
@@ -119,8 +125,6 @@ pub fn accrue_interest(pool: &mut Account<LendingPool>) -> Result<()> {
     }
     Ok(())
 }
-
-
 
 #[macro_export]
 macro_rules! err {

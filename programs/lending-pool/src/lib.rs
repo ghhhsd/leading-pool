@@ -184,7 +184,7 @@ pub mod lending_pool {
             ctx.accounts.user_position.deposited_amount,
             ctx.accounts.user_position.borrowed_amount,
             ctx.accounts.pool.collateral_factor,
-            get_oracle_price(ctx.accounts.pool.mint)?,
+            get_oracle_price(&ctx.accounts.feed_program,&ctx.accounts.depodit_feed,&ctx.accounts.borrow_feed)?,
         )?;
         require!(health_factor < 100, LendingError::NotLiquidatable);
 

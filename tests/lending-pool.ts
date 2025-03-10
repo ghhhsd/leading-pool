@@ -7,6 +7,12 @@ describe("Initialize Pool", () => {
   anchor.setProvider(provider);
   const program = anchor.workspace.Lending as Program<LendingPool>;
 
+
+
+const CHAINLINK_PROGRAM = "HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBMEmJWHny";
+const CHAINLINK_SOL_USD = "99B2bTijsU6f1GCT73HmdR7HCFFjGMBcPZY6jZ96ynrR";
+const CHAINLINK_USDC_USD = "2EmfL3MqL3YHABudGNmajjCpR13NNEn9Y4LWxbDm6SwR";
+
   it("Initialize Pool", async () => {
     // 代币 Mint 地址
     const mint = new anchor.web3.PublicKey("..."); // 替换为实际的 Mint 地址
